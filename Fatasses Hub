@@ -1,7 +1,7 @@
 -- ============================================
--- FATASSES HUB - v85 HALLOWEEN (Delta Fix)
+-- FATASSES HUB - v83 (TaskRemote integrado)
 -- ============================================
-print("🎃 Fatasses Hub v85 loading...")
+print("🎃 v83 [1] Cargando...")
 
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
@@ -13,16 +13,13 @@ local SoundService = game:GetService("SoundService")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
--- FIX: fallback seguro para gethui/firesignal/getrawmetatable
-local gethui_safe = (type(gethui) == "function" and gethui) or function() return nil end
-local firesignal_safe = (type(firesignal) == "function" and firesignal) or nil
-local getrawmetatable_safe = (type(getrawmetatable) == "function" and getrawmetatable) or nil
-local setreadonly_safe = (type(setreadonly) == "function" and setreadonly) or nil
+print("🎃 v83 [2] Servicios OK")
 
 local NOMBRE_GUI = "TaskGuiMap1"
 local NOMBRE_GUI2 = "TaskGuiMap2"
 local RADIO = 0.42
 local ANGULO_ABAJO = math.pi / 2
+local META = 4
 local KILLER_SCRIPTS_THRESHOLD = 20
 local PREDICT_STUDS = 3
 local BASE_W = 520
@@ -38,8 +35,10 @@ local C = {
     danger=Color3.fromRGB(255,50,50), border=Color3.fromRGB(90,40,110),
     border_hl=Color3.fromRGB(255,120,20),
 }
+local EASE_SOFT = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 local estadosOpciones = {}
+
 local activo, autoGen, antiBroken, espActivo, espPlayersActivo, espTracersActivo = false, false, false, false, false, false
 local infStaminaActivo = false
 local autoM1Activo = false
@@ -48,16 +47,15 @@ local autoScreamActivo = false
 local autoThrowLeekActivo = false
 local smartAutoThrowActivo = false
 local autoHealActivo = false
-local autoHealSelfActivo = false
-local jackpotActivo = false
 local pestanaActual = "Esp"
-local TODAS_PESTANAS = {"Esp", "Scientist", "Class A", "Class S", "Experiment", "Beta", "Extra Stuff"}
+local TODAS_PESTANAS = {"Esp", "Scientist", "Class A", "Class S", "Extra Stuff"}
 local COMING_SOON = {}
 
 local autoM1Distancia = 9
 local autoM1Cooldown = 0.6
 
--- Limpiar GUIs viejas
+print("🎃 v83 [3] Variables OK")
+
 pcall(function()
     for _, n in ipairs({"AutoPatientGui","AutoPatientGui2","InfStaminaGui","FatassesHub","FatassesTracers","AITestGui"}) do
         local v = CoreGui:FindFirstChild(n); if v then v:Destroy() end
@@ -65,25 +63,15 @@ pcall(function()
     end
 end)
 
--- FIX: parent robusto para Delta (prioriza PlayerGui)
 local parent = nil
-do
-    local ok, result = pcall(gethui_safe)
-    -- Solo usamos gethui si devuelve un objeto padre válido
-    if ok and result and typeof(result) == "Instance" then
-        parent = result
-    end
-    if not parent then
-        parent = LocalPlayer:FindFirstChild("PlayerGui")
-    end
-    if not parent then
-        parent = LocalPlayer:WaitForChild("PlayerGui", 10)
-    end
-    if not parent then
-        warn("[Fatasses] No parent, abortando")
-        return
-    end
+if type(gethui) == "function" then
+    local ok, result = pcall(gethui)
+    if ok and result then parent = result end
 end
+if not parent then parent = LocalPlayer:FindFirstChild("PlayerGui") end
+if not parent then parent = LocalPlayer:WaitForChild("PlayerGui", 10) end
+if not parent then error("No parent para GUI") end
+print("🎃 v83 [4] Parent:", parent.ClassName)
 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "FatassesHub"
@@ -91,31 +79,27 @@ screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
 screenGui.DisplayOrder = 999
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
--- FIX: parent con pcall por si CoreGui no acepta
-pcall(function() screenGui.Parent = parent end)
-if not screenGui.Parent then
-    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-end
+screenGui.Parent = parent
+print("🎃 v83 [5] ScreenGui OK")
 
 local uiScale = Instance.new("UIScale")
 uiScale.Name = "GlobalScale"
 uiScale.Parent = screenGui
 
--- FIX: función de escala protegida contra ViewportSize nil
 local function aplicarOptimizacion()
     local cam = workspace.CurrentCamera
     if not cam then return end
-    local ok, vp = pcall(function() return cam.ViewportSize end)
-    if not ok or not vp then return end
+    local vp = cam.ViewportSize
     local isTouch = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
     local baseScale = math.min(vp.X / (BASE_W + 60), vp.Y / (BASE_H + 60))
-    local scale = isTouch and baseScale * 0.7 or baseScale
+    local scale = baseScale
+    if isTouch then scale = baseScale * 0.7 end
     scale = math.clamp(scale, 0.5, 1.3)
     uiScale.Scale = scale
 end
 aplicarOptimizacion()
+print("🎃 v83 [6] Escala OK")
 
--- SONIDOS con protección
 local SONIDOS = {
     hover="rbxassetid://10066931761", toggle_on="rbxassetid://9119717523",
     toggle_off="rbxassetid://103866342467024", tab_switch="rbxassetid://14133663945",
@@ -123,23 +107,15 @@ local SONIDOS = {
 }
 local VOLUMENES = {hover=0.5, toggle_on=2.5, toggle_off=2.5, tab_switch=2.0, close=2.5}
 local function reproducirSonido(nombre, vol, pitch)
-    -- FIX: si SoundService no existe o falla, no rompemos el script
-    pcall(function()
-        local id = SONIDOS[nombre]; if not id then return end
-        local sound = Instance.new("Sound")
-        sound.SoundId = id; sound.Volume = vol or VOLUMENES[nombre] or 0.5
-        sound.PlaybackSpeed = pitch or 1; sound.Parent = SoundService
-        sound:Play()
-        sound.Ended:Connect(function()
-            if sound then sound:Destroy() end
-        end)
-        task.delay(3, function()
-            if sound and sound.Parent then sound:Destroy() end
-        end)
-    end)
+    local id = SONIDOS[nombre]; if not id then return end
+    local sound = Instance.new("Sound")
+    sound.SoundId = id; sound.Volume = vol or VOLUMENES[nombre] or 0.5
+    sound.PlaybackSpeed = pitch or 1; sound.Parent = SoundService
+    sound:Play()
+    sound.Ended:Connect(function() sound:Destroy() end)
+    task.delay(3, function() if sound and sound.Parent then sound:Destroy() end end)
 end
 
--- ===== GUI principal =====
 local frame = Instance.new("Frame")
 frame.Name = "Main"
 frame.Size = UDim2.new(0, BASE_W, 0, BASE_H)
@@ -151,8 +127,9 @@ frame.BorderSizePixel = 0
 frame.Active = true
 frame.ClipsDescendants = true
 frame.Parent = screenGui
+print("🎃 v83 [7] Frame OK")
 
-Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 20)
+local frameCorner = Instance.new("UICorner"); frameCorner.CornerRadius = UDim.new(0, 20); frameCorner.Parent = frame
 local frameGrad = Instance.new("UIGradient")
 frameGrad.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(0, C.bg_panel),
@@ -164,7 +141,9 @@ frameGrad.Rotation = 135
 frameGrad.Parent = frame
 
 local strokeGlow = Instance.new("UIStroke")
-strokeGlow.Color = C.accent; strokeGlow.Thickness = 3; strokeGlow.Transparency = 0.4
+strokeGlow.Color = C.accent
+strokeGlow.Thickness = 3
+strokeGlow.Transparency = 0.4
 strokeGlow.Parent = frame
 
 local topBar = Instance.new("Frame")
@@ -175,7 +154,7 @@ topBar.BorderSizePixel = 0
 topBar.Active = true
 topBar.ClipsDescendants = true
 topBar.Parent = frame
-Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 20)
+local tbCorner = Instance.new("UICorner"); tbCorner.CornerRadius = UDim.new(0, 20); tbCorner.Parent = topBar
 
 local titleLbl = Instance.new("TextLabel")
 titleLbl.Size = UDim2.new(1, -120, 1, 0)
@@ -199,10 +178,11 @@ closeBtn.Font = Enum.Font.GothamBold
 closeBtn.BorderSizePixel = 0
 closeBtn.AutoButtonColor = false
 closeBtn.Parent = topBar
-Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(1, 0)
-closeBtn.MouseButton1Click:Connect(function() frame.Visible = false end)
+local closeCorner = Instance.new("UICorner"); closeCorner.CornerRadius = UDim.new(1, 0); closeCorner.Parent = closeBtn
+closeBtn.MouseButton1Click:Connect(function()
+    frame.Visible = false
+end)
 
--- Drag
 local dragging, dragStart, startPos = false, nil, nil
 topBar.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -210,9 +190,7 @@ topBar.InputBegan:Connect(function(input)
     end
 end)
 topBar.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = false
-    end
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
 end)
 UserInputService.InputChanged:Connect(function(input)
     if dragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
@@ -233,7 +211,7 @@ sidebar.ScrollBarThickness = 2
 sidebar.CanvasSize = UDim2.new(0, 0, 0, 0)
 sidebar.AutomaticCanvasSize = Enum.AutomaticSize.Y
 sidebar.Parent = frame
-Instance.new("UICorner", sidebar).CornerRadius = UDim.new(0, 14)
+local sbCorner = Instance.new("UICorner"); sbCorner.CornerRadius = UDim.new(0, 14); sbCorner.Parent = sidebar
 local sbLayout = Instance.new("UIListLayout"); sbLayout.Padding = UDim.new(0, 8); sbLayout.Parent = sidebar
 
 local panel = Instance.new("Frame")
@@ -243,7 +221,7 @@ panel.BackgroundColor3 = C.bg_dark
 panel.BackgroundTransparency = 0.35
 panel.BorderSizePixel = 0
 panel.Parent = frame
-Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 14)
+local pCorner = Instance.new("UICorner"); pCorner.CornerRadius = UDim.new(0, 14); pCorner.Parent = panel
 
 local opcionesContainer = Instance.new("ScrollingFrame")
 opcionesContainer.Size = UDim2.new(1, -16, 1, -16)
@@ -255,15 +233,11 @@ opcionesContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
 opcionesContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
 opcionesContainer.Parent = panel
 local layoutOpc = Instance.new("UIListLayout"); layoutOpc.Padding = UDim.new(0, 10); layoutOpc.Parent = opcionesContainer
+print("🎃 v83 [8] Layout OK")
 
--- ===== FIX: RaycastParams cacheados y compat Exclude/Blacklist =====
-local RAY_FILTER_EXCLUDE
-pcall(function() RAY_FILTER_EXCLUDE = Enum.RaycastFilterType.Exclude end)
-if not RAY_FILTER_EXCLUDE then
-    pcall(function() RAY_FILTER_EXCLUDE = Enum.RaycastFilterType.Blacklist end)
-end
-
-local _rayParamsCache = {}
+-- ============================================
+-- FUNCIONES BÁSICAS
+-- ============================================
 local function tieneLineaDeVision(objetivo)
     if not objetivo then return false end
     local miChar = LocalPlayer.Character
@@ -272,12 +246,9 @@ local function tieneLineaDeVision(objetivo)
     local tHead = objetivo:FindFirstChild("Head") or objetivo:FindFirstChild("HumanoidRootPart")
     if not miHead or not tHead then return false end
     local params = RaycastParams.new()
-    params.FilterType = RAY_FILTER_EXCLUDE
+    params.FilterType = Enum.RaycastFilterType.Exclude
     params.FilterDescendantsInstances = {miChar, objetivo}
-    local ok, r = pcall(function()
-        return Workspace:Raycast(miHead.Position, tHead.Position - miHead.Position, params)
-    end)
-    if not ok then return false end
+    local r = Workspace:Raycast(miHead.Position, tHead.Position - miHead.Position, params)
     return r == nil
 end
 
@@ -366,7 +337,189 @@ local function getNearestPlayer(maxDist)
     return best
 end
 
--- ===== KILLER FUNCS =====
+-- ============================================
+-- TASK REMOTE (nuevo)
+-- ============================================
+local TaskRemote = nil
+pcall(function()
+    TaskRemote = ReplicatedStorage:WaitForChild("TaskRemote", 5)
+end)
+
+local tareaActual = nil  -- { id = string, gui = string, t = number }
+local autoCompleteActivo = false
+local autoStartActivo = false
+local spamCompleteActivo = false
+local autoRequeueActivo = false
+local silentModeActivo = false
+local ultimaTareaCerrada = nil
+local volumenOriginal = SoundService.Volume
+
+if TaskRemote then
+    TaskRemote.OnClientEvent:Connect(function(accion, taskID, guiName)
+        if accion == "OpenGui" then
+            tareaActual = { id = taskID, gui = guiName, t = tick() }
+        elseif accion == "EndTask" then
+            if tareaActual and tareaActual.id == taskID then
+                ultimaTareaCerrada = tareaActual
+                tareaActual = nil
+            end
+        end
+    end)
+    print("🎃 v83 [9] TaskRemote hooked")
+else
+    warn("🎃 v83 [!] TaskRemote no encontrado")
+end
+
+local function completarTarea()
+    if not TaskRemote or not tareaActual then return false end
+    pcall(function() TaskRemote:FireServer("CompleteStep", tareaActual.id) end)
+    return true
+end
+
+-- Auto Complete
+local autoCompleteThread = nil
+local function iniciarAutoComplete()
+    if autoCompleteThread then return end
+    autoCompleteThread = task.spawn(function()
+        while autoCompleteActivo do
+            if tareaActual then
+                task.wait(0.3)  -- que el server registre la tarea
+                if autoCompleteActivo and tareaActual then
+                    completarTarea()
+                end
+                task.wait(0.5)
+            else
+                task.wait(0.3)
+            end
+        end
+        autoCompleteThread = nil
+    end)
+end
+local function detenerAutoComplete() autoCompleteActivo = false; autoCompleteThread = nil end
+
+-- Spam Complete
+local spamCompleteThread = nil
+local function iniciarSpamComplete()
+    if spamCompleteThread then return end
+    spamCompleteThread = task.spawn(function()
+        while spamCompleteActivo do
+            if tareaActual then completarTarea() end
+            task.wait(0.3)
+        end
+        spamCompleteThread = nil
+    end)
+end
+local function detenerSpamComplete() spamCompleteActivo = false; spamCompleteThread = nil end
+
+-- Auto Start (activa el ProximityPrompt del NPC más cercano)
+local function getNPCsConPrompt()
+    local lista = {}
+    local miChar = LocalPlayer.Character
+    local myPos = miChar and miChar:FindFirstChild("HumanoidRootPart") and miChar.HumanoidRootPart.Position
+    if not myPos then return lista end
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj:IsA("Model") then
+            local pp = obj:FindFirstChild("ProximityPrompt", true)
+            if pp then
+                local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart")
+                if hrp then
+                    table.insert(lista, {model = obj, prompt = pp, dist = (myPos - hrp.Position).Magnitude})
+                end
+            end
+        end
+    end
+    table.sort(lista, function(a, b) return a.dist < b.dist end)
+    return lista
+end
+
+local autoStartThread = nil
+local function iniciarAutoStart()
+    if autoStartThread then return end
+    autoStartThread = task.spawn(function()
+        while autoStartActivo do
+            if not tareaActual then
+                local lista = getNPCsConPrompt()
+                if #lista > 0 then
+                    local pp = lista[1].prompt
+                    pcall(function()
+                        if not pp.Enabled then pp.Enabled = true end
+                        if firesignal and pp.PromptButtonHoldBegan then
+                            firesignal(pp.PromptButtonHoldBegan)
+                            firesignal(pp.PromptButtonHoldEnded)
+                        elseif firesignal and pp.Triggered then
+                            firesignal(pp.Triggered)
+                        end
+                        if pp.HoldDuration > 0 then
+                            -- Simular hold completo con input
+                            keypress(Enum.KeyCode.E)
+                            task.wait(pp.HoldDuration + 0.05)
+                            keyrelease(Enum.KeyCode.E)
+                        end
+                    end)
+                end
+            end
+            task.wait(0.5)
+        end
+        autoStartThread = nil
+    end)
+end
+local function detenerAutoStart() autoStartActivo = false; autoStartThread = nil end
+
+-- Auto Requeue
+local autoRequeueThread = nil
+local function iniciarAutoRequeue()
+    if autoRequeueThread then return end
+    autoRequeueThread = task.spawn(function()
+        while autoRequeueActivo do
+            if ultimaTareaCerrada and not tareaActual then
+                local npcName = string.split(ultimaTareaCerrada.id, "_")[1]
+                ultimaTareaCerrada = nil
+                task.wait(0.5)
+                if not autoRequeueActivo then break end
+                local npc = Workspace:FindFirstChild(npcName)
+                if npc then
+                    local pp = npc:FindFirstChild("ProximityPrompt", true)
+                    if pp then
+                        pcall(function()
+                            if not pp.Enabled then pp.Enabled = true end
+                            if firesignal and pp.Triggered then firesignal(pp.Triggered) end
+                            if pp.HoldDuration > 0 then
+                                keypress(Enum.KeyCode.E)
+                                task.wait(pp.HoldDuration + 0.05)
+                                keyrelease(Enum.KeyCode.E)
+                            end
+                        end)
+                    end
+                end
+            end
+            task.wait(0.4)
+        end
+        autoRequeueThread = nil
+    end)
+end
+local function detenerAutoRequeue() autoRequeueActivo = false; autoRequeueThread = nil end
+
+-- Silent Mode
+local silentConn = nil
+local function iniciarSilentMode()
+    volumenOriginal = SoundService.Volume
+    SoundService.Volume = 0
+    if silentConn then return end
+    -- Reforzar mute por si algo lo sube
+    silentConn = RunService.Heartbeat:Connect(function()
+        if silentModeActivo and SoundService.Volume > 0 then
+            SoundService.Volume = 0
+        end
+    end)
+end
+local function detenerSilentMode()
+    SoundService.Volume = volumenOriginal
+    if silentConn then silentConn:Disconnect(); silentConn = nil end
+end
+
+-- ============================================
+-- KILLER FUNCS (sin cambios)
+-- ============================================
 local autoM1Conn = nil
 local lastPunch = 0
 local function iniciarAutoM1()
@@ -394,9 +547,7 @@ local function iniciarAimlockOnM1()
         local target = getNearestPlayer(autoM1Distancia + 2)
         if target then
             local hrp = target.Char:FindFirstChild("HumanoidRootPart")
-            if hrp and workspace.CurrentCamera then
-                workspace.CurrentCamera.CFrame = CFrame.lookAt(workspace.CurrentCamera.CFrame.Position, hrp.Position)
-            end
+            if hrp then workspace.CurrentCamera.CFrame = CFrame.lookAt(workspace.CurrentCamera.CFrame.Position, hrp.Position) end
         end
     end)
 end
@@ -456,7 +607,7 @@ local function iniciarSmartAutoThrow()
 end
 local function detenerSmartAutoThrow() if smartThrowConn then smartThrowConn:Disconnect(); smartThrowConn = nil end end
 
--- ===== SCIENTIST =====
+-- SCIENTIST (viejos - sin cambios)
 local conexion = nil
 local function iniciarAutoPatient()
     if conexion then return end
@@ -484,40 +635,15 @@ local function iniciarAutoPatient()
 end
 local function detenerAutoPatient() if conexion then conexion:Disconnect(); conexion = nil end end
 
--- ===== GENERATOR PIPE =====
 local SIDES = {["Straight"]={0,2},["Corner"]={1,2},["Endpoint"]={2},["TPipe"]={1,2,3}}
 local OPUESTO = {2,3,0,1}
 local DIRV = {[0]={0,-1},[1]={1,0},[2]={0,1},[3]={-1,0}}
-local function rotCelda(c)
-    local img = c:FindFirstChildOfClass("ImageButton"); if not img then return 0 end
-    return math.round((img:GetAttribute("TargetRotation") or img.Rotation)/90)%4
-end
+local function rotCelda(c) local img = c:FindFirstChildOfClass("ImageButton"); if not img then return 0 end; return math.round((img:GetAttribute("TargetRotation") or img.Rotation)/90)%4 end
 local function esRota(c) return c:FindFirstChild("IsBroken") ~= nil end
 local function xyDeOrder(o) return (o-1)%5, math.floor((o-1)/5) end
 local function orderDeXY(x,y) return y*5+x+1 end
-local function ladosAbiertos(c)
-    local pt = c:FindFirstChild("PipeType"); if not pt then return {} end
-    local bs = SIDES[pt.Value]; if not bs then return {} end
-    local ra = rotCelda(c); local l = {}
-    for _, lb in ipairs(bs) do table.insert(l, (lb+ra)%4) end
-    return l
-end
-local function puedeAbrirDos(c, l1, l2)
-    local pt = c:FindFirstChild("PipeType"); if not pt then return nil end
-    local bs = SIDES[pt.Value]; if not bs then return nil end
-    local ra = rotCelda(c)
-    for d = 0, 3 do
-        local rp = (ra+d)%4
-        local a1, a2 = false, false
-        for _, lb in ipairs(bs) do
-            local l = (lb+rp)%4
-            if l == l1 then a1 = true end
-            if l == l2 then a2 = true end
-        end
-        if a1 and a2 then return d end
-    end
-    return nil
-end
+local function ladosAbiertos(c) local pt = c:FindFirstChild("PipeType"); if not pt then return {} end; local bs = SIDES[pt.Value]; if not bs then return {} end; local ra = rotCelda(c); local l = {}; for _, lb in ipairs(bs) do table.insert(l, (lb+ra)%4) end; return l end
+local function puedeAbrirDos(c, l1, l2) local pt = c:FindFirstChild("PipeType"); if not pt then return nil end; local bs = SIDES[pt.Value]; if not bs then return nil end; local ra = rotCelda(c); for d = 0, 3 do local rp = (ra+d)%4; local a1, a2 = false, false; for _, lb in ipairs(bs) do local l = (lb+rp)%4; if l == l1 then a1 = true end; if l == l2 then a2 = true end end; if a1 and a2 then return d end end; return nil end
 local function encontrarCamino(celdas)
     local mapa = {}
     for _, c in ipairs(celdas) do local x, y = xyDeOrder(c.LayoutOrder); mapa[x] = mapa[x] or {}; mapa[x][y] = c end
@@ -531,22 +657,13 @@ local function encontrarCamino(celdas)
         if not celda or esRota(celda) then return false end
         local order = orderDeXY(x, y)
         if camino[order] ~= nil then return false end
-        if order == 25 then
-            if ladoEntrada == l25[1] then camino[order] = 0; return true end
-            return false
-        end
+        if order == 25 then if ladoEntrada == l25[1] then camino[order] = 0; return true end; return false end
         if order == 1 then
-            local ls = l1[1]
-            local dx, dy = DIRV[ls][1], DIRV[ls][2]
+            local ls = l1[1]; local dx, dy = DIRV[ls][1], DIRV[ls][2]
             local nx, ny = x+dx, y+dy
             if nx>=0 and nx<5 and ny>=0 and ny<5 then
                 local v = mapa[nx] and mapa[nx][ny]
-                if v and not esRota(v) then
-                    local lo = OPUESTO[ls+1]
-                    camino[order] = 0
-                    if dfs(nx, ny, lo) then return true end
-                    camino[order] = nil
-                end
+                if v and not esRota(v) then local lo = OPUESTO[ls+1]; camino[order] = 0; if dfs(nx, ny, lo) then return true end; camino[order] = nil end
             end
             return false
         end
@@ -559,12 +676,7 @@ local function encontrarCamino(celdas)
                     local v = mapa[nx] and mapa[nx][ny]
                     if v and not esRota(v) and camino[nO] == nil then
                         local d = puedeAbrirDos(celda, ladoEntrada, ls)
-                        if d ~= nil then
-                            local lo = OPUESTO[ls+1]
-                            camino[order] = d
-                            if dfs(nx, ny, lo) then return true end
-                            camino[order] = nil
-                        end
+                        if d ~= nil then local lo = OPUESTO[ls+1]; camino[order] = d; if dfs(nx, ny, lo) then return true end; camino[order] = nil end
                     end
                 end
             end
@@ -579,43 +691,11 @@ local function resolverInstantaneo(celdas)
     if not camino then return false end
     for o = 1, 25 do
         local d = camino[o]
-        if d and d > 0 then
-            for _, c in ipairs(celdas) do
-                if c.LayoutOrder == o then
-                    local img = c:FindFirstChildOfClass("ImageButton")
-                    if img then
-                        local rotActual = img:GetAttribute("TargetRotation") or img.Rotation
-                        local nuevaRot = rotActual + d * 90
-                        img:SetAttribute("TargetRotation", nuevaRot)
-                        img.Rotation = nuevaRot
-                    end
-                    break
-                end
-            end
-        end
+        if d and d > 0 then for _, c in ipairs(celdas) do if c.LayoutOrder == o then local img = c:FindFirstChildOfClass("ImageButton"); if img then local rotActual = img:GetAttribute("TargetRotation") or img.Rotation; local nuevaRot = rotActual + d * 90; img:SetAttribute("TargetRotation", nuevaRot); img.Rotation = nuevaRot end; break end end end
     end
     local triggerCell = nil
-    for o = 2, 24 do
-        local d = camino[o] or 0
-        if d > 0 then
-            for _, c in ipairs(celdas) do if c.LayoutOrder == o then triggerCell = c; break end end
-            break
-        end
-    end
-    if triggerCell then
-        local img = triggerCell:FindFirstChildOfClass("ImageButton")
-        if img then
-            local rotActual = img:GetAttribute("TargetRotation") or img.Rotation
-            img:SetAttribute("TargetRotation", rotActual - 90)
-            img.Rotation = rotActual - 90
-            -- FIX: fallback para disparar click sin firesignal
-            if firesignal_safe then
-                pcall(firesignal_safe, img.MouseButton1Click)
-            else
-                pcall(function() img:Activate() end)
-            end
-        end
-    end
+    for o = 2, 24 do local d = camino[o] or 0; if d > 0 then for _, c in ipairs(celdas) do if c.LayoutOrder == o then triggerCell = c; break end end; break end end
+    if triggerCell then local img = triggerCell:FindFirstChildOfClass("ImageButton"); if img then local rotActual = img:GetAttribute("TargetRotation") or img.Rotation; img:SetAttribute("TargetRotation", rotActual - 90); img.Rotation = rotActual - 90; if firesignal then pcall(firesignal, img.MouseButton1Click) end end end
     return true
 end
 local conexionGen = nil
@@ -627,27 +707,17 @@ local function iniciarAutoGenerator()
         if not autoGen then return end
         local gui = LocalPlayer.PlayerGui:FindFirstChild(NOMBRE_GUI2)
         if not gui or not gui.Enabled then ultimoGrid = nil; return end
-        local gc = gui:FindFirstChild("GridContainer")
-        if not gc or not gc.Visible then ultimoGrid = nil; return end
+        local gc = gui:FindFirstChild("GridContainer"); if not gc or not gc.Visible then ultimoGrid = nil; return end
         if ultimoGrid == gc or resolviendo then return end
         local celdas = {}
-        for _, h in ipairs(gc:GetChildren()) do
-            if h:IsA("Frame") and h:FindFirstChildOfClass("ImageButton") then table.insert(celdas, h) end
-        end
+        for _, h in ipairs(gc:GetChildren()) do if h:IsA("Frame") and h:FindFirstChildOfClass("ImageButton") then table.insert(celdas, h) end end
         if #celdas < 25 then return end
         table.sort(celdas, function(a, b) return a.LayoutOrder < b.LayoutOrder end)
         resolviendo = true; ultimoGrid = gc
-        task.spawn(function()
-            task.wait(0.3)
-            if autoGen then resolverInstantaneo(celdas) end
-            resolviendo = false
-        end)
+        task.spawn(function() task.wait(0.3); if autoGen then resolverInstantaneo(celdas) end; resolviendo = false end)
     end)
 end
-local function detenerAutoGenerator()
-    if conexionGen then conexionGen:Disconnect(); conexionGen = nil end
-    resolviendo = false; ultimoGrid = nil
-end
+local function detenerAutoGenerator() if conexionGen then conexionGen:Disconnect(); conexionGen = nil end; resolviendo = false; ultimoGrid = nil end
 
 local conexionAB = nil
 local function iniciarAntiBroken()
@@ -657,17 +727,12 @@ local function iniciarAntiBroken()
         local gui = LocalPlayer.PlayerGui:FindFirstChild(NOMBRE_GUI2)
         if not gui or not gui.Enabled then return end
         local gc = gui:FindFirstChild("GridContainer"); if not gc then return end
-        for _, celda in ipairs(gc:GetChildren()) do
-            if celda:IsA("Frame") then
-                local ib = celda:FindFirstChild("IsBroken"); if ib then ib:Destroy() end
-                local ov = celda:FindFirstChild("BrokenOverlay"); if ov then ov:Destroy() end
-            end
-        end
+        for _, celda in ipairs(gc:GetChildren()) do if celda:IsA("Frame") then local ib = celda:FindFirstChild("IsBroken"); if ib then ib:Destroy() end; local ov = celda:FindFirstChild("BrokenOverlay"); if ov then ov:Destroy() end end end
     end)
 end
 local function detenerAntiBroken() if conexionAB then conexionAB:Disconnect(); conexionAB = nil end end
 
--- ===== ESP =====
+-- ESP
 local cacheObj = {}
 local escaneando = false
 local function getMapId()
@@ -689,20 +754,13 @@ local function procesarESPObj(m, conteo, completo)
     if not m or not m.Parent then return end
     local c = cacheObj[m]
     if not c then
-        local hl = Instance.new("Highlight")
-        hl.Name = "ESP_Obj_HL"; hl.FillTransparency = 0.5; hl.OutlineTransparency = 0
+        local hl = Instance.new("Highlight"); hl.Name = "ESP_Obj_HL"; hl.FillTransparency = 0.5; hl.OutlineTransparency = 0
         hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop; hl.Adornee = m; hl.Parent = m
         c = {hl=hl, bb=nil, completo=false}; cacheObj[m] = c
     end
     if c.completo ~= completo then
         c.completo = completo
-        if completo then
-            c.hl.FillColor = Color3.fromRGB(255,120,20)
-            c.hl.OutlineColor = Color3.fromRGB(255,180,80)
-        else
-            c.hl.FillColor = Color3.fromRGB(160,60,220)
-            c.hl.OutlineColor = Color3.fromRGB(200,120,255)
-        end
+        if completo then c.hl.FillColor = Color3.fromRGB(255,120,20); c.hl.OutlineColor = Color3.fromRGB(255,180,80) else c.hl.FillColor = Color3.fromRGB(160,60,220); c.hl.OutlineColor = Color3.fromRGB(200,120,255) end
     end
 end
 local function escanearESP()
@@ -713,10 +771,7 @@ local function escanearESP()
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") then
             local t = tipoObj(obj, mapId)
-            if t then
-                encontrados[obj] = t
-                if t == "patient" then cP = cP + 1 else cT = cT + 1 end
-            end
+            if t then encontrados[obj] = t; if t == "patient" then cP = cP + 1 else cT = cT + 1 end end
         end
     end
     for m, t in pairs(encontrados) do procesarESPObj(m, (t == "patient") and cP or cT, false) end
@@ -733,39 +788,25 @@ local conexionESP = nil
 local function iniciarESP()
     if conexionESP then return end
     escanearESP()
-    conexionESP = task.spawn(function()
-        while espActivo do
-            task.wait(2)
-            if espActivo then escanearESP() end
-        end
-    end)
+    conexionESP = task.spawn(function() while espActivo do task.wait(2); if espActivo then escanearESP() end end end)
 end
 local function limpiarObj()
-    for m, c in pairs(cacheObj) do
-        if c.hl then c.hl:Destroy() end
-        if c.bb then c.bb:Destroy() end
-    end
+    for m, c in pairs(cacheObj) do if c.hl then c.hl:Destroy() end; if c.bb then c.bb:Destroy() end end
     cacheObj = {}
 end
 local function detenerESP() limpiarObj(); conexionESP = nil end
 
--- ===== ESP PLAYERS =====
+-- ESP PLAYERS
 local playersESP = {}
 local function aplicarColorJ(entry, esRojo)
     if not entry or not entry.hl then return end
-    if esRojo then
-        entry.hl.FillColor = Color3.fromRGB(180,30,60)
-        entry.hl.OutlineColor = Color3.fromRGB(255,70,120)
-    else
-        entry.hl.FillColor = Color3.fromRGB(255,120,20)
-        entry.hl.OutlineColor = Color3.fromRGB(255,180,80)
-    end
+    if esRojo then entry.hl.FillColor = Color3.fromRGB(180,30,60); entry.hl.OutlineColor = Color3.fromRGB(255,70,120)
+    else entry.hl.FillColor = Color3.fromRGB(255,120,20); entry.hl.OutlineColor = Color3.fromRGB(255,180,80) end
 end
 local function crearJ(modelo, esRojo)
     if not modelo then return end
     if playersESP[modelo] then aplicarColorJ(playersESP[modelo], esRojo); return end
-    local hl = Instance.new("Highlight")
-    hl.Name = "ESP_P_HL"; hl.FillTransparency = 0.6; hl.OutlineTransparency = 0
+    local hl = Instance.new("Highlight"); hl.Name = "ESP_P_HL"; hl.FillTransparency = 0.6; hl.OutlineTransparency = 0
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop; hl.Adornee = modelo; hl.Parent = modelo
     aplicarColorJ({hl = hl}, esRojo)
     local bg = Instance.new("BillboardGui"); bg.Name = "ESP_P_BB"; bg.Size = UDim2.new(0, 160, 0, 60)
@@ -780,16 +821,10 @@ local function crearJ(modelo, esRojo)
 end
 local function quitarJ(modelo)
     local d = playersESP[modelo]; if not d then return end
-    pcall(function()
-        if d.hl then d.hl:Destroy() end
-        if d.bb then d.bb:Destroy() end
-    end)
+    pcall(function() if d.hl then d.hl:Destroy() end; if d.bb then d.bb:Destroy() end end)
     playersESP[modelo] = nil
 end
-local function limpiarTodosESPPlayers()
-    for m in pairs(playersESP) do quitarJ(m) end
-    playersESP = {}
-end
+local function limpiarTodosESPPlayers() for m in pairs(playersESP) do quitarJ(m) end; playersESP = {} end
 local function escanearPlayers()
     local encontrados = {}
     local listaChars = {}
@@ -813,22 +848,14 @@ local function escanearPlayers()
         crearJ(ch, esKiller)
         encontrados[ch] = true
     end
-    for m in pairs(playersESP) do
-        if not encontrados[m] or not m.Parent then quitarJ(m) end
-    end
+    for m in pairs(playersESP) do if not encontrados[m] or not m.Parent then quitarJ(m) end end
 end
 local conexionP = nil
-local conexionPAdd, conexionPRem
 local function iniciarESPPlayers()
     if conexionP then return end
     escanearPlayers()
-    conexionPAdd = Players.PlayerAdded:Connect(function()
-        if not espPlayersActivo then return end
-        task.wait(0.3); escanearPlayers()
-    end)
-    conexionPRem = Players.PlayerRemoving:Connect(function()
-        task.wait(0.3); escanearPlayers()
-    end)
+    Players.PlayerAdded:Connect(function() if not espPlayersActivo then return end; task.wait(0.3); escanearPlayers() end)
+    Players.PlayerRemoving:Connect(function() task.wait(0.3); escanearPlayers() end)
     conexionP = task.spawn(function()
         while espPlayersActivo do
             task.wait(1)
@@ -854,21 +881,15 @@ local function iniciarESPPlayers()
         end
     end)
 end
-local function detenerESPPlayers()
-    conexionP = nil
-    if conexionPAdd then conexionPAdd:Disconnect(); conexionPAdd = nil end
-    if conexionPRem then conexionPRem:Disconnect(); conexionPRem = nil end
-    limpiarTodosESPPlayers()
-end
+local function detenerESPPlayers() if conexionP then conexionP = nil end; limpiarTodosESPPlayers() end
 
--- ===== TRACERS =====
+-- TRACERS
 local tracerGui = Instance.new("ScreenGui")
 tracerGui.Name = "FatassesTracers"
 tracerGui.ResetOnSpawn = false
 tracerGui.IgnoreGuiInset = true
 tracerGui.DisplayOrder = 998
-pcall(function() tracerGui.Parent = parent end)
-if not tracerGui.Parent then tracerGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+tracerGui.Parent = parent
 
 local tracersCache = {}
 local tracerRenderConn = nil
@@ -880,9 +901,7 @@ local function getFootPos(char)
 end
 local function renderTracers()
     if not espTracersActivo then
-        for _, line in pairs(tracersCache) do
-            if line.Parent then line.Visible = false end
-        end
+        for _, line in pairs(tracersCache) do if line.Parent then line.Visible = false end end
         return
     end
     local myChar = LocalPlayer.Character
@@ -893,9 +912,7 @@ local function renderTracers()
     if not cam then return end
     local myScreen, myOnScreen = cam:WorldToViewportPoint(myFootPos)
     if not myOnScreen then
-        for _, line in pairs(tracersCache) do
-            if line.Parent then line.Visible = false end
-        end
+        for _, line in pairs(tracersCache) do if line.Parent then line.Visible = false end end
         return
     end
     local masAlto, alturaMax = nil, -math.huge
@@ -954,9 +971,7 @@ local function renderTracers()
     end
 end
 local function limpiarTracers()
-    for _, line in pairs(tracersCache) do
-        if line.Parent then line:Destroy() end
-    end
+    for _, line in pairs(tracersCache) do if line.Parent then line:Destroy() end end
     tracersCache = {}
 end
 local function iniciarTracers()
@@ -970,7 +985,7 @@ local function detenerTracers()
     limpiarTracers()
 end
 
--- ===== HEALING =====
+-- HEALING
 local function findNearestInjuredPlayer(maxDist)
     maxDist = maxDist or 20
     local myChar = LocalPlayer.Character
@@ -1026,12 +1041,7 @@ end
 local function resetHealingCooldown()
     local ev = getHealingEvent()
     if not ev then return false end
-    task.spawn(function()
-        for i = 1, 15 do
-            pcall(function() ev:FireServer("RequestCooldownCheck") end)
-            task.wait(0.05)
-        end
-    end)
+    task.spawn(function() for i = 1, 15 do pcall(function() ev:FireServer("RequestCooldownCheck") end); task.wait(0.05) end end)
     return true
 end
 local function giveSpeedBoostSelf()
@@ -1057,7 +1067,6 @@ local function healAllInRange()
     end
     return true
 end
-
 local autoHealThread = nil
 local function iniciarAutoHeal()
     if autoHealThread then return end
@@ -1072,15 +1081,35 @@ local function iniciarAutoHeal()
 end
 local function detenerAutoHeal() autoHealActivo = false; autoHealThread = nil end
 
+-- JACKPOT SPAM & AUTO HEAL SELF
+local jackpotSpamActivo = false
+local jackpotSpamThread = nil
+local autoHealSelfActivo = false
 local autoHealSelfThread = nil
+
+local function iniciarJackpotSpam()
+    if jackpotSpamThread then return end
+    jackpotSpamThread = task.spawn(function()
+        while jackpotSpamActivo do
+            giveSpeedBoostSelf()
+            task.wait(0)
+        end
+        jackpotSpamThread = nil
+    end)
+end
+local function detenerJackpotSpam()
+    jackpotSpamActivo = false
+    jackpotSpamThread = nil
+end
+
 local function iniciarAutoHealSelf()
     if autoHealSelfThread then return end
     autoHealSelfThread = task.spawn(function()
         while autoHealSelfActivo do
-            task.wait(0.5)
-            if not autoHealSelfActivo then break end
-            healTargetInstant(LocalPlayer)
+            healSelf()
+            task.wait(1)
         end
+        autoHealSelfThread = nil
     end)
 end
 local function detenerAutoHealSelf()
@@ -1088,107 +1117,7 @@ local function detenerAutoHealSelf()
     autoHealSelfThread = nil
 end
 
--- JACKPOT
-local jackpotThread = nil
-local function iniciarJackpot()
-    if jackpotThread then return end
-    jackpotThread = task.spawn(function()
-        while jackpotActivo do
-            task.wait(0.5)
-            if not jackpotActivo then break end
-            pcall(giveSpeedBoostSelf)
-        end
-        jackpotThread = nil
-    end)
-end
-local function detenerJackpot()
-    jackpotActivo = false
-    jackpotThread = nil
-end
-
--- ===== BETA =====
-local BETA_HEAL_TICKS = 30
-local function betaHealTarget(target)
-    local ev = getHealingEvent()
-    if not ev or not target then return false end
-    pcall(function() ev:FireServer("StartVisuals", target) end)
-    task.spawn(function()
-        for i = 1, BETA_HEAL_TICKS do
-            pcall(function() ev:FireServer("HealTick", target) end)
-            task.wait(0.05)
-        end
-        pcall(function() ev:FireServer("GiveSpeedBoost") end)
-        pcall(function() ev:FireServer("StartCooldown") end)
-    end)
-    return true
-end
-local function betaHealNearest()
-    local target = findNearestInjuredPlayer(100)
-    if not target then return false end
-    return betaHealTarget(target)
-end
-local function betaHealSelf() return betaHealTarget(LocalPlayer) end
-local function betaHealAllInRange()
-    local ev = getHealingEvent()
-    if not ev then return false end
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character then
-            local hum = p.Character:FindFirstChildOfClass("Humanoid")
-            if hum and hum.Health > 0 and hum.Health < hum.MaxHealth then
-                task.spawn(function()
-                    pcall(function() ev:FireServer("StartVisuals", p) end)
-                    for i = 1, BETA_HEAL_TICKS do pcall(function() ev:FireServer("HealTick", p) end); task.wait(0.05) end
-                    pcall(function() ev:FireServer("GiveSpeedBoost") end)
-                end)
-            end
-        end
-    end
-    return true
-end
-local betaAutoHealThread = nil
-local function iniciarBetaAutoHeal()
-    if betaAutoHealThread then return end
-    betaAutoHealThread = task.spawn(function()
-        while autoHealActivo do
-            task.wait(0.3)
-            if not autoHealActivo then break end
-            local target = findNearestInjuredPlayer(100)
-            if target then betaHealTarget(target); task.wait(0.5) end
-        end
-        betaAutoHealThread = nil
-    end)
-end
-local function detenerBetaAutoHeal() autoHealActivo = false; betaAutoHealThread = nil end
-
-local betaAutoHealSelfThread = nil
-local function iniciarBetaAutoHealSelf()
-    if betaAutoHealSelfThread then return end
-    betaAutoHealSelfThread = task.spawn(function()
-        while autoHealSelfActivo do
-            task.wait(0.5)
-            if not autoHealSelfActivo then break end
-            betaHealTarget(LocalPlayer)
-        end
-    end)
-end
-local function detenerBetaAutoHealSelf()
-    autoHealSelfActivo = false
-    betaAutoHealSelfThread = nil
-end
-
-local function betaResetCooldown()
-    local ev = getHealingEvent()
-    if not ev then return false end
-    task.spawn(function()
-        for i = 1, 30 do
-            pcall(function() ev:FireServer("RequestCooldownCheck") end)
-            task.wait(0.05)
-        end
-    end)
-    return true
-end
-
--- ===== INF STAMINA =====
+-- INF STAMINA
 local SPEED_SPRINT = 30
 local SPEED_WALK = 10
 local SPEED_NO_MAP = 16
@@ -1219,25 +1148,21 @@ local function forzarStam()
     end
 end
 local function instalarHook(hum)
-    -- FIX: si no hay getrawmetatable, no hacemos nada
-    if not getrawmetatable_safe then return end
     if not hum or hum == humHookeado then return end
     humHookeado = hum
     pcall(function()
-        local mt = getrawmetatable_safe(hum)
+        local mt = getrawmetatable(hum)
         if not mt then return end
-        if setreadonly_safe then setreadonly_safe(mt, false) end
+        if setreadonly then setreadonly(mt, false) end
         local oldNI = mt.__newindex
         mt.__newindex = function(self, key, value)
             if key == "WalkSpeed" and self == hum and infStaminaActivo then
                 local target = getTargetSpeed()
-                if value ~= target then
-                    return oldNI(self, key, target)
-                end
+                if value ~= target then return oldNI(self, key, target) end
             end
             return oldNI(self, key, value)
         end
-        if setreadonly_safe then setreadonly_safe(mt, true) end
+        if setreadonly then setreadonly(mt, true) end
     end)
 end
 local function aplicarUIStam()
@@ -1245,9 +1170,7 @@ local function aplicarUIStam()
     if not sg then return end
     local txt = sg:FindFirstChild("StaminaText", true)
     if txt and txt:IsA("TextLabel") then
-        if txt.Text ~= "Stamina: 🎃 Inf/67" then
-            txt.Text = "Stamina: 🎃 Inf/67"
-        end
+        if txt.Text ~= "Stamina: 🎃 Inf/67" then txt.Text = "Stamina: 🎃 Inf/67" end
         txt.TextColor3 = Color3.fromRGB(255, 150, 50)
     end
 end
@@ -1258,14 +1181,10 @@ local function engancharSprintButton()
     if not btn or btn == sprintBtnEnlazado then return end
     sprintBtnEnlazado = btn
     btn.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            sprintHeld = true
-        end
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then sprintHeld = true end
     end)
     btn.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            sprintHeld = false
-        end
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then sprintHeld = false end
     end)
 end
 local function iniciarInfStamina()
@@ -1295,16 +1214,14 @@ local function detenerInfStamina()
     sprintHeld = false
 end
 
--- ===== CLASS S =====
+-- CLASS S
 local TIEMPO_AIM_ANTES_DISPARO = 0
 local COOLDOWN_DISPARO = 0.6
 local function contarScripts(modelo)
     if not modelo or not modelo:IsA("Model") then return 0 end
     local count = 0
     for _, hijo in ipairs(modelo:GetDescendants()) do
-        if hijo:IsA("Script") or hijo:IsA("LocalScript") or hijo:IsA("ModuleScript") then
-            count = count + 1
-        end
+        if hijo:IsA("Script") or hijo:IsA("LocalScript") or hijo:IsA("ModuleScript") then count = count + 1 end
     end
     return count
 end
@@ -1317,14 +1234,11 @@ local function encontrarKillerAutomatico()
             local hum = ch:FindFirstChildOfClass("Humanoid")
             if hum and hum.Health > 0 then
                 local numScripts = contarScripts(ch)
-                local ok, altura = pcall(function() return ch:GetExtentsSize().Y end)
-                if not ok then altura = 0 end
+                local altura = ch:GetExtentsSize().Y
                 if numScripts >= KILLER_SCRIPTS_THRESHOLD then
                     local score = 1000 + numScripts
                     if score > mejorScore then mejorScore = score; mejorKiller = ch end
-                elseif altura > mejorScore then
-                    mejorScore = altura; mejorKiller = ch
-                end
+                elseif altura > mejorScore then mejorScore = altura; mejorKiller = ch end
             end
         end
     end
@@ -1358,35 +1272,23 @@ local function iniciarAimlock()
     cameraConnection = RunService.RenderStepped:Connect(function()
         if not aimlockOnAim then return end
         if not estaApuntando() then return end
-        if not characterTarget or not characterTarget.Parent then
-            characterTarget = encontrarKillerAutomatico()
-        end
+        if not characterTarget or not characterTarget.Parent then characterTarget = encontrarKillerAutomatico() end
         if characterTarget and characterTarget.Parent then
             local aimPos = getPredictChestPos(characterTarget)
-            if aimPos and workspace.CurrentCamera then
-                workspace.CurrentCamera.CFrame = CFrame.lookAt(workspace.CurrentCamera.CFrame.Position, aimPos)
-            end
+            if aimPos then workspace.CurrentCamera.CFrame = CFrame.lookAt(workspace.CurrentCamera.CFrame.Position, aimPos) end
         end
     end)
 end
-local function detenerAimlock()
-    if cameraConnection then cameraConnection:Disconnect(); cameraConnection = nil end
-    characterTarget = nil
-end
+local function detenerAimlock() if cameraConnection then cameraConnection:Disconnect(); cameraConnection = nil end; characterTarget = nil end
 local function buscarTriggerButton()
     local gui = LocalPlayer.PlayerGui:FindFirstChild("GunGui")
     if not gui then return nil end
-    return gui:FindFirstChild("TriggerButton", true)
-        or gui:FindFirstChild("Trigger", true)
-        or gui:FindFirstChild("ShootButton", true)
+    return gui:FindFirstChild("TriggerButton", true) or gui:FindFirstChild("Trigger", true) or gui:FindFirstChild("ShootButton", true)
 end
 local function dispararTrigger()
     local btn = buscarTriggerButton()
     if not btn then return false end
-    if firesignal_safe then
-        pcall(firesignal_safe, btn.MouseButton1Click)
-        return true
-    end
+    if firesignal then pcall(firesignal, btn.MouseButton1Click); return true end
     pcall(function() btn:Activate() end)
     return false
 end
@@ -1405,19 +1307,15 @@ local function iniciarAutoShoot()
         local killer = characterTarget or encontrarKillerAutomatico()
         if not killer or not killer.Parent then return end
         if tieneLineaDeVision(killer) then
-            if dispararTrigger() then
-                ultimoDisparo = tick()
-                aimStartTime = tick()
-            end
+            if dispararTrigger() then ultimoDisparo = tick(); aimStartTime = tick() end
         end
     end)
 end
-local function detenerAutoShoot()
-    if autoShootConn then autoShootConn:Disconnect(); autoShootConn = nil end
-    aimStartTime = 0
-end
+local function detenerAutoShoot() if autoShootConn then autoShootConn:Disconnect(); autoShootConn = nil end; aimStartTime = 0 end
 
--- ===== FACTORY =====
+print("🎃 v83 [10] Funciones OK")
+
+-- FACTORY
 local function crearOpcion(nombre, callback)
     local opt = Instance.new("Frame")
     opt.Name = "Opt_" .. nombre
@@ -1427,10 +1325,8 @@ local function crearOpcion(nombre, callback)
     opt.BorderSizePixel = 0
     opt.ClipsDescendants = true
     opt.Parent = opcionesContainer
-    Instance.new("UICorner", opt).CornerRadius = UDim.new(0, 10)
-    local os = Instance.new("UIStroke")
-    os.Color = C.border; os.Thickness = 1; os.Transparency = 0.5; os.Parent = opt
-
+    local oc = Instance.new("UICorner"); oc.CornerRadius = UDim.new(0, 10); oc.Parent = opt
+    local os = Instance.new("UIStroke"); os.Color = C.border; os.Thickness = 1; os.Transparency = 0.5; os.Parent = opt
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(1, -90, 1, 0)
     label.Position = UDim2.new(0, 16, 0, 0)
@@ -1442,7 +1338,6 @@ local function crearOpcion(nombre, callback)
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.TextWrapped = true
     label.Parent = opt
-
     local toggleBg = Instance.new("TextButton")
     toggleBg.Size = UDim2.new(0, 52, 0, 28)
     toggleBg.Position = UDim2.new(1, -68, 0.5, -14)
@@ -1451,18 +1346,15 @@ local function crearOpcion(nombre, callback)
     toggleBg.BorderSizePixel = 0
     toggleBg.AutoButtonColor = false
     toggleBg.Parent = opt
-    Instance.new("UICorner", toggleBg).CornerRadius = UDim.new(1, 0)
-    local ts = Instance.new("UIStroke")
-    ts.Color = C.border; ts.Thickness = 1; ts.Transparency = 0.4; ts.Parent = toggleBg
-
+    local tc = Instance.new("UICorner"); tc.CornerRadius = UDim.new(1, 0); tc.Parent = toggleBg
+    local ts = Instance.new("UIStroke"); ts.Color = C.border; ts.Thickness = 1; ts.Transparency = 0.4; ts.Parent = toggleBg
     local ball = Instance.new("Frame")
     ball.Size = UDim2.new(0, 22, 0, 22)
     ball.Position = UDim2.new(0, 3, 0.5, -11)
     ball.BackgroundColor3 = Color3.fromRGB(120, 90, 130)
     ball.BorderSizePixel = 0
     ball.Parent = toggleBg
-    Instance.new("UICorner", ball).CornerRadius = UDim.new(1, 0)
-
+    local bc = Instance.new("UICorner"); bc.CornerRadius = UDim.new(1, 0); bc.Parent = ball
     local estado = estadosOpciones[nombre] or false
     local function setEstadoVisual(act, animar)
         local tiempo = animar and 0.4 or 0
@@ -1479,7 +1371,6 @@ local function crearOpcion(nombre, callback)
         end
     end
     setEstadoVisual(estado, false)
-
     local function toggle()
         estado = not estado
         estadosOpciones[nombre] = estado
@@ -1487,12 +1378,9 @@ local function crearOpcion(nombre, callback)
         if estado then reproducirSonido("toggle_on", 2.5, 1) else reproducirSonido("toggle_off", 2.5, 1) end
         if callback then pcall(callback, estado) end
     end
-
     toggleBg.MouseButton1Click:Connect(toggle)
     label.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            toggle()
-        end
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then toggle() end
     end)
     label.Active = true
 end
@@ -1504,8 +1392,7 @@ local function crearInput(nombre, valorInicial, minVal, maxVal, callback)
     opt.BackgroundTransparency = 0.2
     opt.BorderSizePixel = 0
     opt.Parent = opcionesContainer
-    Instance.new("UICorner", opt).CornerRadius = UDim.new(0, 10)
-
+    local oc = Instance.new("UICorner"); oc.CornerRadius = UDim.new(0, 10); oc.Parent = opt
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(1, -110, 1, 0)
     label.Position = UDim2.new(0, 16, 0, 0)
@@ -1516,15 +1403,13 @@ local function crearInput(nombre, valorInicial, minVal, maxVal, callback)
     label.Font = Enum.Font.GothamBold
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.Parent = opt
-
     local inputBg = Instance.new("Frame")
     inputBg.Size = UDim2.new(0, 80, 0, 34)
     inputBg.Position = UDim2.new(1, -90, 0.5, -17)
     inputBg.BackgroundColor3 = Color3.fromRGB(35, 15, 45)
     inputBg.BorderSizePixel = 0
     inputBg.Parent = opt
-    Instance.new("UICorner", inputBg).CornerRadius = UDim.new(0, 8)
-
+    local ibc = Instance.new("UICorner"); ibc.CornerRadius = UDim.new(0, 8); ibc.Parent = inputBg
     local txt = Instance.new("TextBox")
     txt.Size = UDim2.new(1, -8, 1, -8)
     txt.Position = UDim2.new(0, 4, 0, 4)
@@ -1535,7 +1420,6 @@ local function crearInput(nombre, valorInicial, minVal, maxVal, callback)
     txt.Font = Enum.Font.GothamBold
     txt.ClearTextOnFocus = false
     txt.Parent = inputBg
-
     txt.FocusLost:Connect(function()
         local n = tonumber(txt.Text)
         if not n then txt.Text = tostring(valorInicial); return end
@@ -1554,8 +1438,7 @@ local function crearBotonAccion(nombre, color, onFire)
     btn.BorderSizePixel = 0
     btn.AutoButtonColor = false
     btn.Parent = opcionesContainer
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 10)
-
+    local bc = Instance.new("UICorner"); bc.CornerRadius = UDim.new(0, 10); bc.Parent = btn
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(1, -20, 1, 0)
     label.Position = UDim2.new(0, 20, 0, 0)
@@ -1566,14 +1449,15 @@ local function crearBotonAccion(nombre, color, onFire)
     label.Font = Enum.Font.GothamBold
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.Parent = btn
-
     btn.MouseButton1Click:Connect(function()
         reproducirSonido("toggle_on", 2.0, 1.3)
         pcall(onFire)
     end)
 end
 
--- ===== TABS =====
+print("🎃 v83 [11] Factory OK")
+
+-- TABS
 local tabsRefs = {}
 local function crearTab(nombre, comingSoon)
     local tab = Instance.new("TextButton")
@@ -1584,9 +1468,8 @@ local function crearTab(nombre, comingSoon)
     tab.BorderSizePixel = 0
     tab.AutoButtonColor = false
     tab.Parent = sidebar
-    Instance.new("UICorner", tab).CornerRadius = UDim.new(0, 10)
-
-    local iconMap = {Esp="👁", Scientist="🧪", ["Class A"]="💚", ["Class S"]="🎯", Experiment="🧟", Beta="🧬", ["Extra Stuff"]="⚡"}
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 10); c.Parent = tab
+    local iconMap = {Esp="👁", Scientist="🧪", ["Class A"]="💚", ["Class S"]="🎯", ["Extra Stuff"]="⚡"}
     local icon = Instance.new("TextLabel")
     icon.Size = UDim2.new(0, 22, 0, 22)
     icon.Position = UDim2.new(0, 10, 0.5, -11)
@@ -1596,7 +1479,6 @@ local function crearTab(nombre, comingSoon)
     icon.TextScaled = true
     icon.Font = Enum.Font.GothamBold
     icon.Parent = tab
-
     local lbl = Instance.new("TextLabel")
     lbl.Size = UDim2.new(1, -46, 1, 0)
     lbl.Position = UDim2.new(0, 40, 0, 0)
@@ -1607,7 +1489,6 @@ local function crearTab(nombre, comingSoon)
     lbl.Font = Enum.Font.GothamBold
     lbl.TextXAlignment = Enum.TextXAlignment.Left
     lbl.Parent = tab
-
     local clickeando = false
     local function setState(state)
         if state == "selected" then
@@ -1618,7 +1499,6 @@ local function crearTab(nombre, comingSoon)
             tab.BackgroundTransparency = 0.2
         end
     end
-
     tab.MouseButton1Click:Connect(function()
         if clickeando or comingSoon or pestanaActual == nombre then return end
         clickeando = true
@@ -1629,7 +1509,6 @@ local function crearTab(nombre, comingSoon)
         task.spawn(function() pcall(actualizarPanel) end)
         task.delay(0.5, function() clickeando = false end)
     end)
-
     tabsRefs[nombre] = {SetState = setState, ComingSoon = comingSoon}
 end
 
@@ -1637,6 +1516,7 @@ for _, nombre in ipairs(TODAS_PESTANAS) do
     crearTab(nombre, COMING_SOON[nombre])
 end
 if tabsRefs["Esp"] then tabsRefs["Esp"].SetState("selected") end
+print("🎃 v83 [12] Tabs OK")
 
 local actualizandoPanel = false
 function actualizarPanel()
@@ -1654,18 +1534,26 @@ function actualizarPanel()
             crearOpcion("ESP Players 🎃", function(v) espPlayersActivo = v; if v then iniciarESPPlayers() else detenerESPPlayers() end end)
             crearOpcion("Tracers 📏", function(v) espTracersActivo = v; if v then iniciarTracers() else detenerTracers() end end)
         elseif pestanaActual == "Scientist" then
+            -- ===== TaskRemote (nuevos) =====
+            crearBotonAccion("Insta Complete ⚡", Color3.fromRGB(80,255,150), completarTarea)
+            crearOpcion("Auto Complete 🎯", function(v) autoCompleteActivo = v; if v then iniciarAutoComplete() else detenerAutoComplete() end end)
+            crearOpcion("Auto Start 🚀", function(v) autoStartActivo = v; if v then iniciarAutoStart() else detenerAutoStart() end end)
+            crearOpcion("Spam Complete 🔁", function(v) spamCompleteActivo = v; if v then iniciarSpamComplete() else detenerSpamComplete() end end)
+            crearOpcion("Auto Requeue ♻", function(v) autoRequeueActivo = v; if v then iniciarAutoRequeue() else detenerAutoRequeue() end end)
+            crearOpcion("Silent Mode 🔇", function(v) silentModeActivo = v; if v then iniciarSilentMode() else detenerSilentMode() end end)
+            -- ===== Viejos (funcionan en paralelo) =====
             crearOpcion("Auto Patient 🧟", function(v) activo = v; if v then iniciarAutoPatient() else detenerAutoPatient() end end)
             crearOpcion("Auto Generator 🕸", function(v) autoGen = v; if v then iniciarAutoGenerator() else detenerAutoGenerator() end end)
             crearOpcion("Anti Broken Pipes 💀", function(v) antiBroken = v; if v then iniciarAntiBroken() else detenerAntiBroken() end end)
         elseif pestanaActual == "Class A" then
             crearBotonAccion("Heal Nearest 💚", Color3.fromRGB(80,220,120), healNearest)
             crearOpcion("Auto Heal 💚", function(v) autoHealActivo = v; if v then iniciarAutoHeal() else detenerAutoHeal() end end)
-            crearOpcion("Auto Heal Self 💚", function(v) autoHealSelfActivo = v; if v then iniciarAutoHealSelf() else detenerAutoHealSelf() end end)
             crearBotonAccion("Heal Self 🩹", Color3.fromRGB(120,200,255), healSelf)
             crearBotonAccion("Heal All in Range ✨", Color3.fromRGB(255,180,80), healAllInRange)
             crearBotonAccion("Reset Cooldown ⏱", Color3.fromRGB(200,150,255), resetHealingCooldown)
-            crearBotonAccion("Get 30 XP and Money 💰", Color3.fromRGB(255,220,80), giveSpeedBoostSelf)
-            crearOpcion("I JUST HIT THE JACKPOT!!!LOOOL 🎰", function(v) jackpotActivo = v; if v then iniciarJackpot() else detenerJackpot() end end)
+            crearBotonAccion("Get 30 Money and 50 XP 💰", Color3.fromRGB(255,220,80), giveSpeedBoostSelf)
+            crearOpcion("I JUST HIT THE JACKPOOOOTTTTTT 🎰", function(v) jackpotSpamActivo = v; if v then iniciarJackpotSpam() else detenerJackpotSpam() end end)
+            crearOpcion("Auto heal self 🩹", function(v) autoHealSelfActivo = v; if v then iniciarAutoHealSelf() else detenerAutoHealSelf() end end)
         elseif pestanaActual == "Class S" then
             crearOpcion("Aimlock 🎯", function(v) aimlockOnAim = v; if v then iniciarAimlock() else detenerAimlock() end end)
             crearOpcion("Auto Shoot 🔫", function(v) autoShootActivo = v; if v then iniciarAutoShoot() else detenerAutoShoot() end end)
@@ -1677,15 +1565,6 @@ function actualizarPanel()
             crearOpcion("Auto Scream 😱 (25s)", function(v) autoScreamActivo = v; if v then iniciarAutoScream() else detenerAutoScream() end end)
             crearOpcion("Auto Throw Leek 🥬", function(v) autoThrowLeekActivo = v; if v then iniciarAutoThrowLeek() else detenerAutoThrowLeek() end end)
             crearOpcion("Smart Auto Throw 🧠", function(v) smartAutoThrowActivo = v; if v then iniciarSmartAutoThrow() else detenerSmartAutoThrow() end end)
-        elseif pestanaActual == "Beta" then
-            crearBotonAccion("Heal Nearest 🧬", Color3.fromRGB(80,220,120), betaHealNearest)
-            crearOpcion("Auto Heal 🧬", function(v) autoHealActivo = v; if v then iniciarBetaAutoHeal() else detenerBetaAutoHeal() end end)
-            crearOpcion("Auto Heal Self 🧬", function(v) autoHealSelfActivo = v; if v then iniciarBetaAutoHealSelf() else detenerBetaAutoHealSelf() end end)
-            crearBotonAccion("Heal Self 🧬", Color3.fromRGB(120,200,255), betaHealSelf)
-            crearBotonAccion("Heal All in Range 🧬", Color3.fromRGB(255,180,80), betaHealAllInRange)
-            crearBotonAccion("Reset Cooldown 🧬", Color3.fromRGB(200,150,255), betaResetCooldown)
-            crearBotonAccion("Get 30 XP and Money 💰", Color3.fromRGB(255,220,80), giveSpeedBoostSelf)
-            crearOpcion("I JUST HIT THE JACKPOT!!!LOOOL 🎰", function(v) jackpotActivo = v; if v then iniciarJackpot() else detenerJackpot() end end)
         elseif pestanaActual == "Extra Stuff" then
             crearOpcion("Inf Stamina 🎃", function(v) infStaminaActivo = v; if v then iniciarInfStamina() else detenerInfStamina() end end)
         end
@@ -1694,7 +1573,7 @@ function actualizarPanel()
     actualizandoPanel = false
 end
 
--- ===== TOGGLE BTN =====
+-- TOGGLE BTN
 local toggleHolder = Instance.new("Frame")
 toggleHolder.Size = UDim2.new(0, 90, 0, 90)
 toggleHolder.Position = UDim2.new(0, 24, 0.7, 0)
@@ -1710,7 +1589,7 @@ toggleBtn.Text = ""
 toggleBtn.BorderSizePixel = 0
 toggleBtn.AutoButtonColor = false
 toggleBtn.Parent = toggleHolder
-Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(1, 0)
+local toggleCorner = Instance.new("UICorner"); toggleCorner.CornerRadius = UDim.new(1, 0); toggleCorner.Parent = toggleBtn
 
 local sLabel = Instance.new("TextLabel")
 sLabel.Size = UDim2.new(1, 0, 1, 0)
@@ -1722,14 +1601,9 @@ sLabel.Font = Enum.Font.GothamBlack
 sLabel.Parent = toggleBtn
 
 toggleBtn.MouseButton1Click:Connect(function()
-    reproducirSonido("toggle_on", 2.5, 1)
+    reproducirSonido("toggle_gui", 2.5, 1)
     frame.Visible = not frame.Visible
 end)
 
--- FIX: window de re-escala al cambiar viewport
-workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
-    task.wait(0.5); pcall(aplicarOptimizacion)
-end)
-
 actualizarPanel()
-print("🎃 Fatasses Hub v85 loaded (Delta ready)!")
+print("🎃 v83 [✓] Cargado correctamente")
